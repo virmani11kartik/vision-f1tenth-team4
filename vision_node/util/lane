@@ -2,7 +2,6 @@ import cv2
 import numpy as np
 import pyrealsense2 as rs
 
-# Initialize RealSense camera pipeline
 pipeline = rs.pipeline()
 config = rs.config()
 config.enable_stream(rs.stream.color, 848, 480, rs.format.bgr8, 30)
@@ -12,17 +11,14 @@ print("Real-time lane detection started. Press 'q' to exit.")
 
 try:
     while True:
-        # Wait for a new frame
         frames = pipeline.wait_for_frames()
         color_frame = frames.get_color_frame()
         if not color_frame:
             continue
 
-        # Convert RealSense frame to NumPy array
         frame = np.asanyarray(color_frame.get_data())
         height, width, _ = frame.shape
 
-        ### --- Crop the field of view --- ###
         crop_side = 0.15  # Crop 15% from left and right
         crop_top = 0.3    # Crop 30% from top
 
