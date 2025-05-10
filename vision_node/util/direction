@@ -18,14 +18,12 @@ def get_arrow_direction(cnt):
             for i in range(defects.shape[0]):
                 s, e, f, d = defects[i, 0]
                 far = tuple(cnt[f][0])
-                # Use far point x relative to centroid
                 if far[0] < cx:
                     return "Left"
                 else:
                     return "Right"
     return "Unknown"
 
-# Initialize RealSense camera
 pipeline = rs.pipeline()
 config = rs.config()
 config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
@@ -44,33 +42,27 @@ try:
         output = frame.copy()
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        # Threshold for black arrow on white background
         _, thresh = cv2.threshold(gray, 60, 255, cv2.THRESH_BINARY_INV)
 
-        # Morphological filtering
         kernel = np.ones((3, 3), np.uint8)
         thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
 
-        # Find contours
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-        direction = "None"  # Default
+        direction = "None"
 
         for cnt in contours:
             area = cv2.contourArea(cnt)
             if area < 1000:
                 continue
 
-            # Approximate shape to reduce complexity
             approx = cv2.approxPolyDP(cnt, 0.03 * cv2.arcLength(cnt, True), True)
 
-            # Check if it resembles an arrow (7-12 vertices typical for hand-drawn arrows)
             if 5 <= len(approx) <= 12:
                 direction = get_arrow_direction(cnt)
                 cv2.drawContours(output, [cnt], -1, (0, 255, 0), 2)
-                break  # only process first valid arrow
+                break  
 
-        # Display arrow direction
         cv2.putText(output, f"Arrow Direction: {direction}", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
 
