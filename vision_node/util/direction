@@ -1,0 +1,85 @@
+import cv2
+import numpy as np
+import pyrealsense2 as rs
+
+def get_arrow_direction(cnt):
+    """
+    Infer arrow direction (Left or Right) based on convexity defects and centroid.
+    """
+    M = cv2.moments(cnt)
+    if M["m00"] == 0:
+        return "Unknown"
+    cx = int(M["m10"] / M["m00"])
+
+    hull = cv2.convexHull(cnt, returnPoints=False)
+    if len(hull) > 3 and len(cnt) > 3:
+        defects = cv2.convexityDefects(cnt, hull)
+        if defects is not None:
+            for i in range(defects.shape[0]):
+                s, e, f, d = defects[i, 0]
+                far = tuple(cnt[f][0])
+                # Use far point x relative to centroid
+                if far[0] < cx:
+                    return "Left"
+                else:
+                    return "Right"
+    return "Unknown"
+
+# Initialize RealSense camera
+pipeline = rs.pipeline()
+config = rs.config()
+config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
+pipeline.start(config)
+
+print("Arrow Direction Detection Started (Press 'q' to quit)")
+
+try:
+    while True:
+        frames = pipeline.wait_for_frames()
+        color_frame = frames.get_color_frame()
+        if not color_frame:
+            continue
+
+        frame = np.asanyarray(color_frame.get_data())
+        output = frame.copy()
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        # Threshold for black arrow on white background
+        _, thresh = cv2.threshold(gray, 60, 255, cv2.THRESH_BINARY_INV)
+
+        # Morphological filtering
+        kernel = np.ones((3, 3), np.uint8)
+        thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
+
+        # Find contours
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        direction = "None"  # Default
+
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area < 1000:
+                continue
+
+            # Approximate shape to reduce complexity
+            approx = cv2.approxPolyDP(cnt, 0.03 * cv2.arcLength(cnt, True), True)
+
+            # Check if it resembles an arrow (7-12 vertices typical for hand-drawn arrows)
+            if 5 <= len(approx) <= 12:
+                direction = get_arrow_direction(cnt)
+                cv2.drawContours(output, [cnt], -1, (0, 255, 0), 2)
+                break  # only process first valid arrow
+
+        # Display arrow direction
+        cv2.putText(output, f"Arrow Direction: {direction}", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
+
+        cv2.imshow("Arrow Detection", output)
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            print("Exiting arrow detection...")
+            break
+
+finally:
+    pipeline.stop()
+    cv2.destroyAllWindows()

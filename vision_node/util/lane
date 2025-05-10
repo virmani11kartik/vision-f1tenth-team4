@@ -1,0 +1,77 @@
+import cv2
+import numpy as np
+import pyrealsense2 as rs
+
+# Initialize RealSense camera pipeline
+pipeline = rs.pipeline()
+config = rs.config()
+config.enable_stream(rs.stream.color, 848, 480, rs.format.bgr8, 30)
+pipeline.start(config)
+
+print("Real-time lane detection started. Press 'q' to exit.")
+
+try:
+    while True:
+        # Wait for a new frame
+        frames = pipeline.wait_for_frames()
+        color_frame = frames.get_color_frame()
+        if not color_frame:
+            continue
+
+        # Convert RealSense frame to NumPy array
+        frame = np.asanyarray(color_frame.get_data())
+        height, width, _ = frame.shape
+
+        ### --- Crop the field of view --- ###
+        crop_side = 0.15  # Crop 15% from left and right
+        crop_top = 0.3    # Crop 30% from top
+
+        left = int(width * crop_side)
+        right = int(width * (1 - crop_side))
+        top = int(height * crop_top)
+
+        roi = frame[top:, left:right]
+        roi_height, roi_width, _ = roi.shape
+
+        ### --- Process image --- ###
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        blur = cv2.GaussianBlur(gray, (5, 5), 0)
+        _, binary = cv2.threshold(blur, 60, 255, cv2.THRESH_BINARY_INV)
+
+        # Optional: Close gaps in black lines
+        kernel = np.ones((3, 3), np.uint8)
+        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+
+        # Find contours in binary image
+        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        centers = []
+
+        for c in contours:
+            M = cv2.moments(c)
+            if M["m00"] > 50:  # allow smaller segments
+                cx = int(M["m10"] / M["m00"])
+                cy = int(M["m01"] / M["m00"])
+                centers.append(cx)
+
+                # Draw full contour in green
+                cv2.drawContours(roi, [c], -1, (0, 255, 0), 2)
+                # Optional: draw center dot
+                cv2.circle(roi, (cx, cy), 3, (255, 255, 0), -1)
+
+        ### --- Draw the lane center --- ###
+        if len(centers) >= 2:
+            lane_center = int(np.mean(centers))
+            cv2.line(roi, (lane_center, 0), (lane_center, roi_height), (255, 0, 0), 2)
+            cv2.putText(roi, f"Lane Center: {lane_center}", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+
+        ### --- Display the result --- ###
+        cv2.imshow("Enhanced Lane Detection", roi)
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            print("Exiting lane detection...")
+            break
+
+finally:
+    pipeline.stop()
+    cv2.destroyAllWindows()
