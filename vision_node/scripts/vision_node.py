@@ -20,16 +20,16 @@ class Vision_Node(Node):
         self.drive_pub = self.create_publisher(AckermannDriveStamped, "/drive", 10)
         self.last_stop_time = 0
         self.stop_duration = 5  # seconds
+        self.stop_cooldown = 10  # ignore red circle repeat for 10s
         self.default_speed = 1.5
         self.current_speed = self.default_speed
-        self.stop_cooldown = 10  
 
     def image_callback(self, msg):
         frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         output = frame.copy()
 
-        # Red mask
+        # Red mask (2 ranges)
         lower_red1 = np.array([0, 100, 100])
         upper_red1 = np.array([10, 255, 255])
         lower_red2 = np.array([160, 100, 100])
@@ -49,17 +49,23 @@ class Vision_Node(Node):
             circularity = 4 * np.pi * (area / (perimeter * perimeter))
             if 0.7 < circularity < 1.2 and area > 3000:
                 circle_detected = True
-                break  # Stop once a red circle is found
+                cv2.drawContours(output, [cnt], -1, (0, 0, 255), 3)
+                break
+
+        current_time = time.time()
 
         if circle_detected:
-            current_time = time.time()
             if current_time - self.last_stop_time > self.stop_cooldown:
                 self.get_logger().info("Red circle detected. Stopping for 5 seconds.")
+                cv2.putText(output, "Stopping...", (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
                 self.publish_speed(0.0)
                 self.last_stop_time = current_time
+            self.show_image(output)
             return
 
-        if time.time() - self.last_stop_time < self.stop_duration:
+        if current_time - self.last_stop_time < self.stop_duration:
+            self.show_image(output)
             return
 
         for cnt in contours:
@@ -72,19 +78,31 @@ class Vision_Node(Node):
             if text.isdigit():
                 speed_val = int(text)
                 self.get_logger().info(f"Red number detected: {speed_val}")
-                self.publish_speed(speed_val)  
+                cv2.rectangle(output, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                cv2.putText(output, f"Speed: {speed_val}", (x, y - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                self.publish_speed(speed_val)
                 number_detected = True
                 break
 
         if not number_detected:
             self.publish_speed(self.current_speed)
 
+        cv2.putText(output, f"Current Speed: {self.current_speed:.2f}", (10, 460),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+
+        self.show_image(output)
+
     def publish_speed(self, speed):
         drive_msg = AckermannDriveStamped()
         drive_msg.drive.speed = speed
-        drive_msg.drive.steering_angle = 0.0  
+        drive_msg.drive.steering_angle = 0.0
         self.drive_pub.publish(drive_msg)
         self.current_speed = speed
+
+    def show_image(self, image):
+        cv2.imshow("Camera View", image)
+        cv2.waitKey(1)
 
 
 def main(args=None):
