@@ -19,12 +19,21 @@ try:
             continue
 
         frame = np.asanyarray(color_frame.get_data())
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         output = frame.copy()
         command = "None"
 
-        _, bin_img = cv2.threshold(gray, 60, 255, cv2.THRESH_BINARY_INV)
-        contours, _ = cv2.findContours(bin_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # Threshold red (two ranges in HSV)
+        lower_red1 = np.array([0, 100, 100])
+        upper_red1 = np.array([10, 255, 255])
+        lower_red2 = np.array([160, 100, 100])
+        upper_red2 = np.array([180, 255, 255])
+
+        mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
+        mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
+        red_mask = cv2.bitwise_or(mask1, mask2)
+
+        contours, _ = cv2.findContours(red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         circle_detected = False
         for cnt in contours:
@@ -40,19 +49,19 @@ try:
 
         if circle_detected:
             command = "Stop"
-            print("Black circle detected — stopping for 5 seconds")
+            print("Red circle detected — stopping for 5 seconds")
             cv2.putText(output, "Stopping...", (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
             cv2.imshow("Visual Command", output)
             cv2.waitKey(1)
             time.sleep(5)
-            continue 
+            continue
 
         for cnt in contours:
             x, y, w, h = cv2.boundingRect(cnt)
             if w * h < 500:
                 continue
-            digit_roi = bin_img[y:y+h, x:x+w]
+            digit_roi = red_mask[y:y+h, x:x+w]
             text = pytesseract.image_to_string(digit_roi, config='--psm 10 digits').strip()
 
             if text.isdigit():
